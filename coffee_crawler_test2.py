@@ -13,6 +13,7 @@ import time
 import re
 import os
 
+
 def get_unfinished_keywords(temp_folder="temp"):
     """暫存每一個城市的暫存檔"""
     temp_city = set()
@@ -26,6 +27,7 @@ def get_unfinished_keywords(temp_folder="temp"):
 
     return temp_city
 
+
 def merge_all_temp_csv(temp_folder="temp"):
     """合併暫存檔，並刪除所有 temp 檔案"""
     dfs = []
@@ -37,7 +39,7 @@ def merge_all_temp_csv(temp_folder="temp"):
     final_df = pd.concat(dfs, ignore_index=True)
     final_df.to_csv("e_01_coffee_crawler.csv", encoding="utf-8", index=False)
 
-    #合併完刪除暫存資料
+    # 合併完刪除暫存資料
     if os.path.exists(temp_folder):
         shutil.rmtree(temp_folder)
 
@@ -80,7 +82,7 @@ def scroll_to_bottom(driver, pause_time=3, max_wait_time=300):
     WebDriverWait(driver, 15).until(
         EC.presence_of_element_located(
             (By.CSS_SELECTOR, "div[role='feed']"))
-        )
+    )
 
     # google map左邊面板
     leftside_panel = driver.find_element(
@@ -137,28 +139,36 @@ def get_google_map_data(driver):
 
             # 評分
             coffee_rate_elm = coffee.find_element(
-                By.CSS_SELECTOR, 
-                    "div.UaQhfb.fontBodyMedium > div:nth-child(3) > div > span.e4rVHe.fontBodyMedium > span > span.MW4etd"
-                )
-            coffee_rate = coffee_rate_elm.text if coffee_rate_elm else "無評分"
-            
+                By.CSS_SELECTOR,
+                "div.UaQhfb.fontBodyMedium > div:nth-child(3) > div > span.e4rVHe.fontBodyMedium > span > span.MW4etd"
+            )
+            coffee_rate = coffee_rate_elm.text
+
             # 評論數
             coffee_comm_elm = coffee.find_element(
                 By.CSS_SELECTOR, "span.e4rVHe.fontBodyMedium > span > span.UY7F9")
-            coffee_comm = coffee_comm_elm.text.strip(
-                "()") if coffee_comm_elm else "無評論數"
+            coffee_comm = coffee_comm_elm.text.strip("()")
 
             coffee_list.append(
                 {
-                    "Name": coffee_name,
+                    "f_name": coffee_name,
                     # "Address": coffee_address,
-                    "Rate": coffee_rate,
-                    "Comm": coffee_comm,
-                    "Url": coffee_url,
+                    "rate": coffee_rate,
+                    "comm": coffee_comm,
+                    "url": coffee_url,
                 }
             )
         except Exception as e:
             print(f"Error with coffee: {e}")
+            coffee_list.append(
+                {
+                    "f_name": None,
+                    # "Address": None,
+                    "rate": None,
+                    "comm": None,
+                    "url": None,
+                }
+            )
             continue
 
     return coffee_list
@@ -166,13 +176,15 @@ def get_google_map_data(driver):
 
 def get_latlon_from_url(url):
     """第五步、抓取經緯度"""
-    if url and "!3d" in url:
-        try:
-            match = re.search(r"!3d([\d.]+)!4d([\d.]+)", url)
+    if "!3d" in url and "!4d" in url:
+        match = re.search(r"!3d([\d.]+)!4d([\d.]+)", url)
+        if match:
             return f"{match.group(1)},{match.group(2)}"
-        except Exception:
-            return None  # 有!3d但是解析失敗
-    return None  # 沒有!3d
+        else:
+            print(f"URL 包含經緯度關鍵字，但無法解析：{url}")
+            return None
+    print(f"Google Maps 回傳 URL 不包含經緯度：{url}")
+    return None
 
 
 def get_latlon_from_search(keyword):
@@ -189,25 +201,30 @@ def get_latlon_from_search(keyword):
         print(f"重新查詢經緯度失敗：{e}")
         return None
 
+
 def coffee_other_data(driver, coffee_list):
     """第七步、進入每個咖啡廳裡面抓取資料"""
     for coffee in coffee_list:
         try:
-            url = coffee["Url"]
+            url = coffee["url"]
             driver.get(url)
             time.sleep(random.uniform(3, 5))
 
-            coffee_address_elm = driver.find_element(By.CSS_SELECTOR,"div.Io6YTe.fontBodyMedium.kR99db.fdkmkc")
-            coffee["Address"] = coffee_address_elm.text
+            coffee_address_elm = driver.find_element(
+                By.CSS_SELECTOR, "div.Io6YTe.fontBodyMedium.kR99db.fdkmkc")
+            coffee["address"] = coffee_address_elm.text
 
-            coffee_business_time_elm = driver.find_element(By.CSS_SELECTOR,"div.t39EBf.GUrTXd")
-            coffee["Business_Time"] = coffee_business_time_elm.get_attribute("aria-label")
+            coffee_business_time_elm = driver.find_element(
+                By.CSS_SELECTOR, "div.t39EBf.GUrTXd")
+            coffee["b_time"] = coffee_business_time_elm.get_attribute(
+                "aria-label")
 
         except:
-            coffee["Address"] = None
-            coffee["Business_Time"] = None
+            coffee["address"] = None
+            coffee["b_time"] = None
 
     return coffee_list
+
 
 def get_search_keywords(category):
     """列出台灣縣市與指定類別的搜尋關鍵字"""
@@ -218,15 +235,15 @@ def get_search_keywords(category):
         "花蓮縣", "台東縣",
     ]
     finished_cities = get_unfinished_keywords(temp_folder="temp")
-    unfinished_cities = [city for city in taiwan_cities if city not in finished_cities]
+    unfinished_cities = [
+        city for city in taiwan_cities if city not in finished_cities]
 
     return [f"{city} {category}" for city in unfinished_cities]
+
 
 def main():
     search_keywords = get_search_keywords("咖啡廳")
     url = "https://www.google.com.tw/maps/"
-
-    all_coffee_list = []
 
     for keyword in search_keywords:
         driver = web_open(headless=False)
@@ -238,23 +255,23 @@ def main():
 
         driver.quit()
 
-        all_coffee_list.extend(coffee_list)
-        # 暫存每個城市的資料
-        temp_df = pd.DataFrame(coffee_list)
-        temp_keyword = keyword.split()[0]
-        temp_df.to_csv(f"temp/temp_{temp_keyword}.csv", encoding="utf-8", index=False)
+    df = pd.DataFrame(coffee_list)
 
-    for idx, item in enumerate(all_coffee_list):
-        maps_url = item.get("Url")
-        latlon = get_latlon_from_url(maps_url)
+    for num in range(len(df)):
+        s_latlon = df.loc[num, "url"]
+        latlon = get_latlon_from_url(s_latlon)
 
         if not latlon:
-            print(f"原始 URL 無法獲得經緯度，第 {idx+1} 筆資料重新搜尋：{item.get('Name')}")
-            latlon = get_latlon_from_search(item.get("Name"))
+            print(f"原始 URL 無法獲得經緯度，第 {num+1} 筆資料重新搜尋：{s_latlon}")
+            latlon = get_latlon_from_search(s_latlon)
         if not latlon:
-            print(f"第 {idx + 1} 筆資料仍然無法獲得經緯度。")
+            print(f"第 {num+1} 筆資料仍然無法獲得經緯度。")
 
-        item["Latlon"] = latlon
+        df.loc[num, "geo_loc"] = latlon
+
+    # 暫存每個城市的資料
+    temp_keyword = keyword.split()[0]
+    df.to_csv(f"temp/temp_{temp_keyword}.csv", encoding="utf-8", index=False)
 
     merge_all_temp_csv()
 
