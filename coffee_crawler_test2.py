@@ -37,6 +37,7 @@ def merge_all_temp_csv(temp_folder="temp"):
             dfs.append(df)
 
     final_df = pd.concat(dfs, ignore_index=True)
+    df = df[["f_name", "b_time", "address", "rate", "comm", "geo_loc", "pic_url", "url"]]
     final_df.to_csv("e_01_coffee_crawler.csv", encoding="utf-8", index=False)
 
     # 合併完刪除暫存資料
@@ -137,12 +138,17 @@ def get_google_map_data(driver):
             if not coffee_name:
                 continue
 
+            coffee_pic_elm = coffee.find_element(By.CSS_SELECTOR,"div.FQ2IWe.p0Hhde > img")
+            coffee_pic = coffee_pic_elm.get_attribute("src")
+
+
             # 評分
             coffee_rate_elm = coffee.find_element(
                 By.CSS_SELECTOR,
                 "div.UaQhfb.fontBodyMedium > div:nth-child(3) > div > span.e4rVHe.fontBodyMedium > span > span.MW4etd"
             )
             coffee_rate = coffee_rate_elm.text
+
 
             # 評論數
             coffee_comm_elm = coffee.find_element(
@@ -153,6 +159,7 @@ def get_google_map_data(driver):
                 {
                     "f_name": coffee_name,
                     # "Address": coffee_address,
+                    "pic_url":coffee_pic,
                     "rate": coffee_rate,
                     "comm": coffee_comm,
                     "url": coffee_url,
@@ -164,6 +171,7 @@ def get_google_map_data(driver):
                 {
                     "f_name": None,
                     # "Address": None,
+                    "pic_url":None,
                     "rate": None,
                     "comm": None,
                     "url": None,
@@ -176,15 +184,13 @@ def get_google_map_data(driver):
 
 def get_latlon_from_url(url):
     """第五步、抓取經緯度"""
-    if "!3d" in url and "!4d" in url:
+    try:
         match = re.search(r"!3d([\d.]+)!4d([\d.]+)", url)
-        if match:
-            return f"{match.group(1)},{match.group(2)}"
-        else:
-            print(f"URL 包含經緯度關鍵字，但無法解析：{url}")
-            return None
-    print(f"Google Maps 回傳 URL 不包含經緯度：{url}")
-    return None
+        return f"{match.group(1)},{match.group(2)}"
+    except:
+        print(f"無法解析：{url}")
+        return None
+
 
 
 def get_latlon_from_search(keyword):
@@ -192,9 +198,12 @@ def get_latlon_from_search(keyword):
     try:
         driver = web_open(headless=True)
         driver.get("https://www.google.com.tw/maps/")
+
         google_search(driver, keyword)
         time.sleep(2)
+
         url = driver.current_url
+        
         driver.quit()
         return get_latlon_from_url(url)
     except Exception as e:
@@ -208,16 +217,44 @@ def coffee_other_data(driver, coffee_list):
         try:
             url = coffee["url"]
             driver.get(url)
-            time.sleep(random.uniform(3, 5))
 
-            coffee_address_elm = driver.find_element(
-                By.CSS_SELECTOR, "div.Io6YTe.fontBodyMedium.kR99db.fdkmkc")
-            coffee["address"] = coffee_address_elm.text
+            # coffee_address_elm = WebDriverWait(driver, 5).until(
+            #     EC.presence_of_element_located(
+            #         (By.CSS_SELECTOR, "button[data-item-id='address']")
+            #     )
+            # )
+            # coffee["address"] = coffee_address_elm.text
+            try:
+                coffee_address_elm = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, "//*[contains(@aria-label, '地址')]"))
+                    )
+                coffee["address"] = coffee_address_elm.get_attribute("aria-label").replace("地址: ", "").strip()
+                print(coffee["address"])
+            except:
+                fallback_address_elm = driver.find_element(
+                    By.CSS_SELECTOR, "div.Io6YTe.fontBodyMedium.kR99db.fdkmkc"
+                )
+                coffee["address"] = fallback_address_elm.text.strip()
+                print(coffee["address"])
+                
+            try:
+                coffee_business_time_elm = driver.find_element(
+                    By.CSS_SELECTOR, "div.t39EBf.GUrTXd")
+                coffee["b_time"] = coffee_business_time_elm.get_attribute("aria-label")
+            except:
+                fallback_business_time_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable(
+                        (By.CLASS_NAME, "CsEnBe"))
+                    )
+                fallback_business_time_button.click()
 
-            coffee_business_time_elm = driver.find_element(
-                By.CSS_SELECTOR, "div.t39EBf.GUrTXd")
-            coffee["b_time"] = coffee_business_time_elm.get_attribute(
-                "aria-label")
+                fallback_business_time_elm = driver.find_element(
+                    By.CSS_SELECTOR, "div.t39EBf.GUrTXd")
+                coffee["b_time"] = fallback_business_time_elm.get_attribute("aria-label")
+
+            # coffee_business_time_elm = driver.find_element(
+            #     By.XPATH, "//*[contains(@aria-label, '星期')]")
+            # coffee["b_time"] = coffee_business_time_elm.get_attribute("aria-label")
 
         except:
             coffee["address"] = None
@@ -245,8 +282,10 @@ def main():
     search_keywords = get_search_keywords("咖啡廳")
     url = "https://www.google.com.tw/maps/"
 
+    all_coffee_list = []
+
     for keyword in search_keywords:
-        driver = web_open(headless=False)
+        driver = web_open(headless=True)
         driver.get(url)
         google_search(driver, keyword)
         scroll_to_bottom(driver)
@@ -255,23 +294,27 @@ def main():
 
         driver.quit()
 
-    df = pd.DataFrame(coffee_list)
+        df = pd.DataFrame(coffee_list)
 
-    for num in range(len(df)):
-        s_latlon = df.loc[num, "url"]
-        latlon = get_latlon_from_url(s_latlon)
+        for num in range(len(df)):
+            s_latlon = df.loc[num, "url"]
+            latlon = get_latlon_from_url(s_latlon)
 
-        if not latlon:
-            print(f"原始 URL 無法獲得經緯度，第 {num+1} 筆資料重新搜尋：{s_latlon}")
-            latlon = get_latlon_from_search(s_latlon)
-        if not latlon:
-            print(f"第 {num+1} 筆資料仍然無法獲得經緯度。")
+            if not latlon:
+                print(f"原始 URL 無法獲得經緯度，第 {num+1} 筆資料重新搜尋：{s_latlon}")
+                latlon = get_latlon_from_search(s_latlon)
+                print(latlon)
 
-        df.loc[num, "geo_loc"] = latlon
+            if not latlon:
+                print(f"第 {num+1} 筆資料仍然無法獲得經緯度。")
 
-    # 暫存每個城市的資料
-    temp_keyword = keyword.split()[0]
-    df.to_csv(f"temp/temp_{temp_keyword}.csv", encoding="utf-8", index=False)
+            df.loc[num, "geo_loc"] = latlon
+
+            all_coffee_list.extend(df.to_dict(orient="records"))
+
+        temp_keyword = keyword.split()[0]
+        df.to_csv(f"temp/temp_{temp_keyword}.csv", encoding="utf-8", index=False)
+        print("暫存完成!")
 
     merge_all_temp_csv()
 
